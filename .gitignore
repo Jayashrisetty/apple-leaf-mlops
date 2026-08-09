@@ -39,3 +39,4 @@ duplicate_quarantine/
 # OS files
 .DS_Store
 Thumbs.db
+/data
