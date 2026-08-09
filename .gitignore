@@ -40,3 +40,6 @@ duplicate_quarantine/
 .DS_Store
 Thumbs.db
 /data
+
+# Local DVC configuration (contains OAuth credentials)
+.dvc/config.local
