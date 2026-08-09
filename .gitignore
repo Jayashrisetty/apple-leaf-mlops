@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+.env.*
+
+# Jupyter
+.ipynb_checkpoints/
+
+# VS Code / IDE
+.vscode/
+.idea/
+
+# Data
+data/
+
+# Trained models
+models/
+
+# Generated reports
+reports/
+
+# Temporary / review files
+cross_class_review/
+duplicate_quarantine/
+
+# Logs
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
