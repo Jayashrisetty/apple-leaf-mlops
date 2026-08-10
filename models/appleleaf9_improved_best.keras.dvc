@@ -1,0 +1,5 @@
+outs:
+- md5: dd903777ed1799c8e8b1e5be8846647b
+  size: 5612540
+  hash: md5
+  path: appleleaf9_improved_best.keras

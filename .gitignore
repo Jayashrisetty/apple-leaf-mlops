@@ -23,8 +23,8 @@ env/
 # Data
 data/
 
-# Trained models
-models/
+# Trained model files
+models/*.keras
 
 # Generated reports
 reports/
