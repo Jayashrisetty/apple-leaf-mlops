@@ -1,5 +1,4 @@
 name: AppleLeaf9 CI
-
 on:
   push:
     branches:
@@ -9,6 +8,7 @@ on:
       - main
 
 jobs:
+
   test:
     runs-on: ubuntu-latest
 
@@ -28,7 +28,9 @@ jobs:
 
       - name: Install DVC with Google Drive support
         run: |
-          pip install "cryptography<44" "pyOpenSSL<24"
+          python -m pip install --upgrade pip
+          pip install "cryptography==46.0.7"
+          pip install "pyOpenSSL==25.3.0"
           pip install "dvc[gdrive]"
 
       - name: Verify Python files
@@ -58,8 +60,14 @@ jobs:
       - name: Install DVC with Google Drive support
         run: |
           python -m pip install --upgrade pip
-          pip install "cryptography<44" "pyOpenSSL<24"
+          pip install "cryptography==46.0.7"
+          pip install "pyOpenSSL==25.3.0"
           pip install "dvc[gdrive]"
+
+      - name: Verify crypto versions
+        run: |
+          python -c "import cryptography; print('cryptography:', cryptography.__version__)"
+          python -c "import OpenSSL; print('pyOpenSSL:', OpenSSL.__version__)"
 
       - name: Configure DVC service account
         env:
@@ -83,3 +91,4 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t appleleaf9-api:ci .
+```
