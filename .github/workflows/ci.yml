@@ -20,25 +20,25 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 1. Checkout repository
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 2. Setup Python
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 3. Install dependencies
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Install dependencies
         run: |
@@ -54,12 +54,6 @@ jobs:
           echo "Installing DVC Google Drive support..."
           pip install "dvc-gdrive"
 
-          echo "Installing compatible pyOpenSSL..."
-          pip install "pyOpenSSL==24.2.1"
-
-          echo "Installing compatible cryptography..."
-          pip install "cryptography>=43.0.1,<45"
-
           if [ -f requirements.txt ]; then
             echo "Installing project requirements..."
             pip install -r requirements.txt
@@ -67,12 +61,18 @@ jobs:
             echo "requirements.txt not found."
           fi
 
+          echo "Installing compatible Google Drive dependencies..."
+          pip install --force-reinstall \
+            "PyDrive2==1.21.3" \
+            "pyOpenSSL==24.2.1" \
+            "cryptography==43.0.3"
+
           echo "Installing pytest..."
           pip install pytest
 
-      # --------------------------------------------------------
-      # 4. Verify Python and packages
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # 4. Verify Python and package versions
+      # ----------------------------------------------------------
 
       - name: Verify Python and packages
         run: |
@@ -82,14 +82,14 @@ jobs:
           python --version
 
           echo "========================================"
-          echo "PIP VERSION"
-          echo "========================================"
-          pip --version
-
-          echo "========================================"
           echo "DVC VERSION"
           echo "========================================"
           dvc --version
+
+          echo "========================================"
+          echo "PYDRIVE2 VERSION"
+          echo "========================================"
+          python -c "import pydrive2; print('PyDrive2:', pydrive2.__version__)"
 
           echo "========================================"
           echo "PYOPENSSL VERSION"
@@ -97,26 +97,25 @@ jobs:
           python -c "import OpenSSL; print('pyOpenSSL:', OpenSSL.__version__)"
 
           echo "========================================"
-          echo "CHECKING OpenSSL.crypto.sign"
-          echo "========================================"
-          python -c "from OpenSSL import crypto; print('crypto.sign available:', hasattr(crypto, 'sign'))"
-
-          echo "========================================"
           echo "CRYPTOGRAPHY VERSION"
           echo "========================================"
           python -c "import cryptography; print('cryptography:', cryptography.__version__)"
 
-      # --------------------------------------------------------
-      # 5. Create Google Drive credentials
-      # --------------------------------------------------------
+          echo "========================================"
+          echo "CHECKING OpenSSL.crypto.sign"
+          echo "========================================"
+          python -c "from OpenSSL import crypto; print('crypto.sign available:', hasattr(crypto, 'sign'))"
+
+      # ----------------------------------------------------------
+      # 5. Create Google service-account credentials
+      # ----------------------------------------------------------
 
       - name: Create Google Drive credentials
         env:
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-
         run: |
           echo "========================================"
-          echo "CHECKING GOOGLE DRIVE CREDENTIALS"
+          echo "CREATING GOOGLE DRIVE CREDENTIALS"
           echo "========================================"
 
           if [ -z "$GCP_SERVICE_ACCOUNT_KEY" ]; then
@@ -138,24 +137,19 @@ jobs:
               "gdrive-service-account.json"
           )
 
-          try:
-              with open(path, "r", encoding="utf-8") as f:
-                  data = json.load(f)
-
-          except json.JSONDecodeError as e:
-              raise SystemExit(
-                  f"ERROR: GCP_SERVICE_ACCOUNT_KEY is not valid JSON: {e}"
-              )
+          with open(path, "r", encoding="utf-8") as f:
+              data = json.load(f)
 
           if data.get("type") != "service_account":
               raise SystemExit(
-                  "ERROR: Secret is not a Google service-account JSON."
+                  "ERROR: GCP_SERVICE_ACCOUNT_KEY is not a service-account JSON."
               )
 
           required = [
               "project_id",
               "private_key",
-              "client_email"
+              "client_email",
+              "token_uri"
           ]
 
           for key in required:
@@ -169,9 +163,9 @@ jobs:
           print("Project ID:", data["project_id"])
           PY
 
-      # --------------------------------------------------------
-      # 6. Configure DVC Google Drive
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # 6. Configure DVC Google Drive service account
+      # ----------------------------------------------------------
 
       - name: Configure DVC Google Drive
         run: |
@@ -179,17 +173,35 @@ jobs:
           echo "CONFIGURING DVC GOOGLE DRIVE"
           echo "========================================"
 
+          echo "Remote configuration:"
+          dvc remote list
+
+          echo "Enabling service-account authentication..."
+
           dvc remote modify gdrive_remote \
+            --local \
+            gdrive_use_service_account true
+
+          echo "Setting service-account JSON path..."
+
+          dvc remote modify gdrive_remote \
+            --local \
             gdrive_service_account_json_file_path \
             "$RUNNER_TEMP/gdrive-service-account.json"
 
-          echo "DVC Google Drive authentication configured."
+          echo "DVC service-account authentication configured."
 
-      # --------------------------------------------------------
-      # 7. Check DVC configuration
-      # --------------------------------------------------------
+          echo "========================================"
+          echo "LOCAL DVC CONFIGURATION"
+          echo "========================================"
 
-      - name: Check DVC configuration
+          dvc config --local --list
+
+      # ----------------------------------------------------------
+      # 7. Verify DVC configuration
+      # ----------------------------------------------------------
+
+      - name: Verify DVC configuration
         run: |
           echo "========================================"
           echo "DVC REMOTES"
@@ -198,24 +210,26 @@ jobs:
           dvc remote list
 
           echo "========================================"
-          echo "DVC CONFIGURATION"
+          echo "CHECKING SERVICE ACCOUNT CONFIGURATION"
           echo "========================================"
 
-          dvc config --list
+          dvc config --local --get remote.gdrive_remote.gdrive_use_service_account
 
-      # --------------------------------------------------------
-      # 8. Test Google Drive authentication
-      # --------------------------------------------------------
+          dvc config --local --get remote.gdrive_remote.gdrive_service_account_json_file_path
 
-      - name: Test Google Drive authentication
+      # ----------------------------------------------------------
+      # 8. Test service-account JWT signing
+      # ----------------------------------------------------------
+
+      - name: Test service account authentication
         run: |
           echo "========================================"
-          echo "TESTING GOOGLE DRIVE AUTHENTICATION"
+          echo "TESTING SERVICE ACCOUNT AUTHENTICATION"
           echo "========================================"
 
           python - <<'PY'
-          import os
           import json
+          import os
 
           from oauth2client.service_account import ServiceAccountCredentials
 
@@ -225,7 +239,8 @@ jobs:
           )
 
           scopes = [
-              "https://www.googleapis.com/auth/drive"
+              "https://www.googleapis.com/auth/drive",
+              "https://www.googleapis.com/auth/drive.appdata"
           ]
 
           print("Loading service-account credentials...")
@@ -237,20 +252,21 @@ jobs:
 
           print("Service-account credentials loaded successfully.")
 
-          # Force JWT signing.
+          print("Testing JWT signing...")
+
           assertion = credentials._generate_assertion()
 
-          if assertion:
-              print("Google service-account JWT signing successful.")
-          else:
+          if not assertion:
               raise SystemExit(
-                  "ERROR: JWT signing failed."
+                  "ERROR: Service-account JWT signing failed."
               )
+
+          print("Google service-account JWT signing successful.")
           PY
 
-      # --------------------------------------------------------
-      # 9. Pull dataset from Google Drive
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+      # 9. Pull DVC data from Google Drive
+      # ----------------------------------------------------------
 
       - name: Pull DVC data
         run: |
@@ -260,9 +276,9 @@ jobs:
 
           dvc pull --verbose
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 10. Verify dataset
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Verify dataset
         run: |
@@ -281,9 +297,9 @@ jobs:
             exit 1
           fi
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 11. Run tests
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Run tests
         run: |
@@ -309,16 +325,16 @@ jobs:
 
     steps:
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 12. Checkout repository
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 13. Login to Docker Hub
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -326,9 +342,9 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 14. Build Docker image
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Build Docker image
         run: |
@@ -340,9 +356,9 @@ jobs:
             -t ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest \
             .
 
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
       # 15. Push Docker image
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
 
       - name: Push Docker image
         run: |
