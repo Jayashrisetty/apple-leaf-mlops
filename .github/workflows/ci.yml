@@ -1,4 +1,5 @@
 name: AppleLeaf9 CI
+
 on:
   push:
     branches:
@@ -21,7 +22,7 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install application dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r api/requirements.txt
@@ -29,9 +30,14 @@ jobs:
       - name: Install DVC with Google Drive support
         run: |
           python -m pip install --upgrade pip
-          pip install "cryptography==46.0.7"
-          pip install "pyOpenSSL==25.3.0"
           pip install "dvc[gdrive]"
+          pip install --force-reinstall "cryptography==43.0.3" "pyOpenSSL==24.2.1"
+
+      - name: Verify DVC crypto dependencies
+        run: |
+          python -c "import cryptography; print('cryptography:', cryptography.__version__)"
+          python -c "import OpenSSL; print('pyOpenSSL:', OpenSSL.__version__)"
+          python -c "from OpenSSL import crypto; print('OpenSSL crypto import: OK')"
 
       - name: Verify Python files
         run: |
@@ -42,6 +48,7 @@ jobs:
         run: |
           test -f data.dvc
           test -f .dvc/config
+
 
   docker:
     runs-on: ubuntu-latest
@@ -60,14 +67,14 @@ jobs:
       - name: Install DVC with Google Drive support
         run: |
           python -m pip install --upgrade pip
-          pip install "cryptography==46.0.7"
-          pip install "pyOpenSSL==25.3.0"
           pip install "dvc[gdrive]"
+          pip install --force-reinstall "cryptography==43.0.3" "pyOpenSSL==24.2.1"
 
-      - name: Verify crypto versions
+      - name: Verify DVC crypto dependencies
         run: |
           python -c "import cryptography; print('cryptography:', cryptography.__version__)"
           python -c "import OpenSSL; print('pyOpenSSL:', OpenSSL.__version__)"
+          python -c "from OpenSSL import crypto; print('OpenSSL crypto import: OK')"
 
       - name: Configure DVC service account
         env:
