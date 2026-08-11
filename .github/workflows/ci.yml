@@ -1,4 +1,3 @@
-```yaml
 name: AppleLeaf9 CI
 
 on:
@@ -84,4 +83,3 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t appleleaf9-api:ci .
-```
