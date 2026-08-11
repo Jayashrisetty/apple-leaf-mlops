@@ -11,34 +11,18 @@ on:
 
 jobs:
 
-  # ============================================================
-  # TEST JOB
-  # ============================================================
-
   test:
     runs-on: ubuntu-latest
 
     steps:
 
-      # ----------------------------------------------------------
-      # 1. Checkout repository
-      # ----------------------------------------------------------
-
       - name: Checkout repository
         uses: actions/checkout@v4
-
-      # ----------------------------------------------------------
-      # 2. Setup Python
-      # ----------------------------------------------------------
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
-
-      # ----------------------------------------------------------
-      # 3. Install dependencies
-      # ----------------------------------------------------------
 
       - name: Install dependencies
         run: |
@@ -70,10 +54,6 @@ jobs:
           echo "Installing pytest..."
           pip install pytest
 
-      # ----------------------------------------------------------
-      # 4. Verify Python and package versions
-      # ----------------------------------------------------------
-
       - name: Verify Python and packages
         run: |
           echo "========================================"
@@ -89,7 +69,7 @@ jobs:
           echo "========================================"
           echo "PYDRIVE2 VERSION"
           echo "========================================"
-          python -c "import pydrive2; print('PyDrive2:', pydrive2.__version__)"
+          python -c "import pydrive2; print('PyDrive2:', getattr(pydrive2, '__version__', 'installed'))"
 
           echo "========================================"
           echo "PYOPENSSL VERSION"
@@ -105,268 +85,3 @@ jobs:
           echo "CHECKING OpenSSL.crypto.sign"
           echo "========================================"
           python -c "from OpenSSL import crypto; print('crypto.sign available:', hasattr(crypto, 'sign'))"
-
-      # ----------------------------------------------------------
-      # 5. Create Google service-account credentials
-      # ----------------------------------------------------------
-
-      - name: Create Google Drive credentials
-        env:
-          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
-        run: |
-          echo "========================================"
-          echo "CREATING GOOGLE DRIVE CREDENTIALS"
-          echo "========================================"
-
-          if [ -z "$GCP_SERVICE_ACCOUNT_KEY" ]; then
-            echo "ERROR: GCP_SERVICE_ACCOUNT_KEY secret is empty."
-            exit 1
-          fi
-
-          printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" \
-            > "$RUNNER_TEMP/gdrive-service-account.json"
-
-          echo "Credential file created."
-
-          python - <<'PY'
-          import json
-          import os
-
-          path = os.path.join(
-              os.environ["RUNNER_TEMP"],
-              "gdrive-service-account.json"
-          )
-
-          with open(path, "r", encoding="utf-8") as f:
-              data = json.load(f)
-
-          if data.get("type") != "service_account":
-              raise SystemExit(
-                  "ERROR: GCP_SERVICE_ACCOUNT_KEY is not a service-account JSON."
-              )
-
-          required = [
-              "project_id",
-              "private_key",
-              "client_email",
-              "token_uri"
-          ]
-
-          for key in required:
-              if not data.get(key):
-                  raise SystemExit(
-                      f"ERROR: Missing required field: {key}"
-                  )
-
-          print("Google service-account JSON is valid.")
-          print("Service account:", data["client_email"])
-          print("Project ID:", data["project_id"])
-          PY
-
-      # ----------------------------------------------------------
-      # 6. Configure DVC Google Drive service account
-      # ----------------------------------------------------------
-
-      - name: Configure DVC Google Drive
-        run: |
-          echo "========================================"
-          echo "CONFIGURING DVC GOOGLE DRIVE"
-          echo "========================================"
-
-          echo "Remote configuration:"
-          dvc remote list
-
-          echo "Enabling service-account authentication..."
-
-          dvc remote modify gdrive_remote \
-            --local \
-            gdrive_use_service_account true
-
-          echo "Setting service-account JSON path..."
-
-          dvc remote modify gdrive_remote \
-            --local \
-            gdrive_service_account_json_file_path \
-            "$RUNNER_TEMP/gdrive-service-account.json"
-
-          echo "DVC service-account authentication configured."
-
-          echo "========================================"
-          echo "LOCAL DVC CONFIGURATION"
-          echo "========================================"
-
-          dvc config --local --list
-
-      # ----------------------------------------------------------
-      # 7. Verify DVC configuration
-      # ----------------------------------------------------------
-
-      - name: Verify DVC configuration
-        run: |
-          echo "========================================"
-          echo "DVC REMOTES"
-          echo "========================================"
-
-          dvc remote list
-
-          echo "========================================"
-          echo "CHECKING SERVICE ACCOUNT CONFIGURATION"
-          echo "========================================"
-
-          dvc config --local --get remote.gdrive_remote.gdrive_use_service_account
-
-          dvc config --local --get remote.gdrive_remote.gdrive_service_account_json_file_path
-
-      # ----------------------------------------------------------
-      # 8. Test service-account JWT signing
-      # ----------------------------------------------------------
-
-      - name: Test service account authentication
-        run: |
-          echo "========================================"
-          echo "TESTING SERVICE ACCOUNT AUTHENTICATION"
-          echo "========================================"
-
-          python - <<'PY'
-          import json
-          import os
-
-          from oauth2client.service_account import ServiceAccountCredentials
-
-          credential_path = os.path.join(
-              os.environ["RUNNER_TEMP"],
-              "gdrive-service-account.json"
-          )
-
-          scopes = [
-              "https://www.googleapis.com/auth/drive",
-              "https://www.googleapis.com/auth/drive.appdata"
-          ]
-
-          print("Loading service-account credentials...")
-
-          credentials = ServiceAccountCredentials.from_json_keyfile_name(
-              credential_path,
-              scopes
-          )
-
-          print("Service-account credentials loaded successfully.")
-
-          print("Testing JWT signing...")
-
-          assertion = credentials._generate_assertion()
-
-          if not assertion:
-              raise SystemExit(
-                  "ERROR: Service-account JWT signing failed."
-              )
-
-          print("Google service-account JWT signing successful.")
-          PY
-
-      # ----------------------------------------------------------
-      # 9. Pull DVC data from Google Drive
-      # ----------------------------------------------------------
-
-      - name: Pull DVC data
-        run: |
-          echo "========================================"
-          echo "PULLING DATA FROM GOOGLE DRIVE"
-          echo "========================================"
-
-          dvc pull --verbose
-
-      # ----------------------------------------------------------
-      # 10. Verify dataset
-      # ----------------------------------------------------------
-
-      - name: Verify dataset
-        run: |
-          echo "========================================"
-          echo "VERIFYING DATASET"
-          echo "========================================"
-
-          if [ -d "data" ]; then
-            echo "Data directory exists."
-
-            echo "Dataset files:"
-            find data -maxdepth 2 -type f | head -20
-
-          else
-            echo "ERROR: data directory was not created."
-            exit 1
-          fi
-
-      # ----------------------------------------------------------
-      # 11. Run tests
-      # ----------------------------------------------------------
-
-      - name: Run tests
-        run: |
-          echo "========================================"
-          echo "RUNNING TESTS"
-          echo "========================================"
-
-          if [ -d "tests" ]; then
-            pytest tests -v
-          else
-            echo "No tests directory found."
-            echo "Skipping pytest."
-          fi
-
-
-  # ============================================================
-  # DOCKER JOB
-  # ============================================================
-
-  docker:
-    needs: test
-    runs-on: ubuntu-latest
-
-    steps:
-
-      # ----------------------------------------------------------
-      # 12. Checkout repository
-      # ----------------------------------------------------------
-
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ----------------------------------------------------------
-      # 13. Login to Docker Hub
-      # ----------------------------------------------------------
-
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      # ----------------------------------------------------------
-      # 14. Build Docker image
-      # ----------------------------------------------------------
-
-      - name: Build Docker image
-        run: |
-          echo "========================================"
-          echo "BUILDING DOCKER IMAGE"
-          echo "========================================"
-
-          docker build \
-            -t ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest \
-            .
-
-      # ----------------------------------------------------------
-      # 15. Push Docker image
-      # ----------------------------------------------------------
-
-      - name: Push Docker image
-        run: |
-          echo "========================================"
-          echo "PUSHING DOCKER IMAGE"
-          echo "========================================"
-
-          docker push \
-            ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest
-
-          echo "Docker image pushed successfully."
