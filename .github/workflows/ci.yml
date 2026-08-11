@@ -20,17 +20,23 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
       # 1. Checkout repository
+      # ----------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ----------------------------------------------------------
       # 2. Setup Python
+      # ----------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
+      # ----------------------------------------------------------
       # 3. Install dependencies
+      # ----------------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -47,37 +53,47 @@ jobs:
 
           pip install pytest
 
+      # ----------------------------------------------------------
       # 4. Verify installation
+      # ----------------------------------------------------------
       - name: Verify Python and packages
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "PYTHON VERSION"
-          echo "=============================="
+          echo "======================================"
           python --version
 
-          echo "=============================="
+          echo "======================================"
+          echo "PIP VERSION"
+          echo "======================================"
+          pip --version
+
+          echo "======================================"
           echo "DVC VERSION"
-          echo "=============================="
+          echo "======================================"
           dvc --version
 
-          echo "=============================="
-          echo "CRYPTOGRAPHY"
-          echo "=============================="
+          echo "======================================"
+          echo "CRYPTOGRAPHY VERSION"
+          echo "======================================"
           python -c "import cryptography; print('cryptography:', cryptography.__version__)"
 
-          echo "=============================="
-          echo "PYOPENSSL"
-          echo "=============================="
+          echo "======================================"
+          echo "PYOPENSSL VERSION"
+          echo "======================================"
           python -c "import OpenSSL; print('pyOpenSSL:', OpenSSL.__version__)"
 
-      # 5. Create Google Drive credentials
+      # ----------------------------------------------------------
+      # 5. Create Google Drive service-account credentials
+      # ----------------------------------------------------------
       - name: Create Google Drive credentials
         env:
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "CHECKING GOOGLE CREDENTIALS"
-          echo "=============================="
+          echo "======================================"
 
           if [ -z "$GCP_SERVICE_ACCOUNT_KEY" ]; then
             echo "ERROR: GCP_SERVICE_ACCOUNT_KEY secret is empty or unavailable."
@@ -127,72 +143,93 @@ jobs:
           print("Service account:", data["client_email"])
           PY
 
-      # 6. Configure DVC Google Drive
+      # ----------------------------------------------------------
+      # 6. Configure DVC Google Drive service account
+      # ----------------------------------------------------------
       - name: Configure DVC Google Drive
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "CONFIGURING DVC GOOGLE DRIVE"
-          echo "=============================="
+          echo "======================================"
+
+          dvc remote modify gdrive_remote \
+            gdrive_use_service_account true
 
           dvc remote modify gdrive_remote \
             gdrive_service_account_json_file_path \
             "$RUNNER_TEMP/gdrive-service-account.json"
 
-          echo "DVC Google Drive authentication configured."
+          echo "DVC Google Drive service-account authentication configured."
 
+      # ----------------------------------------------------------
       # 7. Check DVC configuration
+      # ----------------------------------------------------------
       - name: Check DVC configuration
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "DVC REMOTES"
-          echo "=============================="
+          echo "======================================"
 
           dvc remote list
 
-          echo "=============================="
+          echo "======================================"
           echo "DVC CONFIGURATION"
-          echo "=============================="
+          echo "======================================"
 
           dvc config --list
 
-      # 8. Pull dataset
+      # ----------------------------------------------------------
+      # 8. Pull dataset from Google Drive
+      # ----------------------------------------------------------
       - name: Pull DVC data
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "PULLING DATA FROM GOOGLE DRIVE"
-          echo "=============================="
+          echo "======================================"
 
           dvc pull --verbose
 
+      # ----------------------------------------------------------
       # 9. Verify dataset
+      # ----------------------------------------------------------
       - name: Verify dataset
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "VERIFYING DATASET"
-          echo "=============================="
+          echo "======================================"
 
           if [ -d "data" ]; then
+
             echo "Data directory exists."
 
             echo "Dataset files:"
             find data -maxdepth 2 -type f | head -20
+
           else
+
             echo "ERROR: data directory was not created."
             exit 1
+
           fi
 
+      # ----------------------------------------------------------
       # 10. Run tests
+      # ----------------------------------------------------------
       - name: Run tests
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "RUNNING TESTS"
-          echo "=============================="
+          echo "======================================"
 
           if [ -d "tests" ]; then
+
             pytest tests -v
+
           else
+
             echo "No tests directory found."
             echo "Skipping pytest."
+
           fi
 
 
@@ -204,42 +241,52 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
 
-    # Only build/push Docker on a push to main.
-    # Do not attempt Docker Hub login during pull requests.
+    # Only build and push Docker when main is actually pushed.
+    # Pull requests will run TEST but will not push to Docker Hub.
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
 
+      # ----------------------------------------------------------
       # 11. Checkout repository
+      # ----------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # ----------------------------------------------------------
       # 12. Login to Docker Hub
+      # ----------------------------------------------------------
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # ----------------------------------------------------------
       # 13. Build Docker image
+      # ----------------------------------------------------------
       - name: Build Docker image
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "BUILDING DOCKER IMAGE"
-          echo "=============================="
+          echo "======================================"
 
           docker build \
             -t ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest \
             .
 
+      # ----------------------------------------------------------
       # 14. Push Docker image
+      # ----------------------------------------------------------
       - name: Push Docker image
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "PUSHING DOCKER IMAGE"
-          echo "=============================="
+          echo "======================================"
 
           docker push \
             ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest
 
-          echo "Docker image pushed successfully."
+          echo "======================================"
+          echo "DOCKER IMAGE PUSHED SUCCESSFULLY"
+          echo "======================================"
