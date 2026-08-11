@@ -14,28 +14,23 @@ jobs:
   # ============================================================
   # TEST JOB
   # ============================================================
+
   test:
     runs-on: ubuntu-latest
 
     steps:
 
-      # --------------------------------------------------------
       # 1. Checkout repository
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
       # 2. Setup Python
-      # --------------------------------------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.10"
 
-      # --------------------------------------------------------
       # 3. Install dependencies
-      # --------------------------------------------------------
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
@@ -52,20 +47,13 @@ jobs:
 
           pip install pytest
 
-      # --------------------------------------------------------
-      # 4. Verify Python and packages
-      # --------------------------------------------------------
+      # 4. Verify installation
       - name: Verify Python and packages
         run: |
           echo "=============================="
           echo "PYTHON VERSION"
           echo "=============================="
           python --version
-
-          echo "=============================="
-          echo "PIP VERSION"
-          echo "=============================="
-          pip --version
 
           echo "=============================="
           echo "DVC VERSION"
@@ -82,31 +70,24 @@ jobs:
           echo "=============================="
           python -c "import OpenSSL; print('pyOpenSSL:', OpenSSL.__version__)"
 
-      # --------------------------------------------------------
       # 5. Create Google Drive credentials
-      # --------------------------------------------------------
       - name: Create Google Drive credentials
         env:
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
         run: |
-
           echo "=============================="
           echo "CHECKING GOOGLE CREDENTIALS"
           echo "=============================="
 
           if [ -z "$GCP_SERVICE_ACCOUNT_KEY" ]; then
-            echo "ERROR: GCP_SERVICE_ACCOUNT_KEY is empty."
+            echo "ERROR: GCP_SERVICE_ACCOUNT_KEY secret is empty or unavailable."
             exit 1
           fi
 
           printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" \
             > "$RUNNER_TEMP/gdrive-service-account.json"
 
-          echo "Google service-account JSON file created."
-
-          echo "=============================="
-          echo "VALIDATING JSON"
-          echo "=============================="
+          echo "Credential file created."
 
           python - <<'PY'
           import json
@@ -117,11 +98,16 @@ jobs:
               "gdrive-service-account.json"
           )
 
-          with open(path, "r", encoding="utf-8") as f:
-              data = json.load(f)
+          try:
+              with open(path, "r", encoding="utf-8") as f:
+                  data = json.load(f)
+          except json.JSONDecodeError as e:
+              raise SystemExit(
+                  f"ERROR: GCP_SERVICE_ACCOUNT_KEY is not valid JSON: {e}"
+              )
 
           if data.get("type") != "service_account":
-              raise ValueError(
+              raise SystemExit(
                   "ERROR: Secret is not a Google service-account JSON."
               )
 
@@ -133,21 +119,17 @@ jobs:
 
           for key in required:
               if not data.get(key):
-                  raise ValueError(
+                  raise SystemExit(
                       f"ERROR: Missing required field: {key}"
                   )
 
-          print("SUCCESS: Google service-account JSON is valid.")
+          print("Google service-account JSON is valid.")
           print("Service account:", data["client_email"])
-          print("Project ID:", data["project_id"])
           PY
 
-      # --------------------------------------------------------
       # 6. Configure DVC Google Drive
-      # --------------------------------------------------------
       - name: Configure DVC Google Drive
         run: |
-
           echo "=============================="
           echo "CONFIGURING DVC GOOGLE DRIVE"
           echo "=============================="
@@ -158,12 +140,9 @@ jobs:
 
           echo "DVC Google Drive authentication configured."
 
-      # --------------------------------------------------------
       # 7. Check DVC configuration
-      # --------------------------------------------------------
       - name: Check DVC configuration
         run: |
-
           echo "=============================="
           echo "DVC REMOTES"
           echo "=============================="
@@ -171,103 +150,80 @@ jobs:
           dvc remote list
 
           echo "=============================="
-          echo "DVC GDRIVE URL"
+          echo "DVC CONFIGURATION"
           echo "=============================="
 
-          dvc remote get-url gdrive_remote
+          dvc config --list
 
-      # --------------------------------------------------------
-      # 8. Pull dataset from Google Drive
-      # --------------------------------------------------------
+      # 8. Pull dataset
       - name: Pull DVC data
         run: |
-
           echo "=============================="
           echo "PULLING DATA FROM GOOGLE DRIVE"
           echo "=============================="
 
           dvc pull --verbose
 
-      # --------------------------------------------------------
       # 9. Verify dataset
-      # --------------------------------------------------------
       - name: Verify dataset
         run: |
-
           echo "=============================="
           echo "VERIFYING DATASET"
           echo "=============================="
 
           if [ -d "data" ]; then
+            echo "Data directory exists."
 
-            echo "SUCCESS: Data directory exists."
-
-            echo "=============================="
-            echo "DATA FILES"
-            echo "=============================="
-
+            echo "Dataset files:"
             find data -maxdepth 2 -type f | head -20
-
           else
-
             echo "ERROR: data directory was not created."
             exit 1
-
           fi
 
-      # --------------------------------------------------------
       # 10. Run tests
-      # --------------------------------------------------------
       - name: Run tests
         run: |
-
           echo "=============================="
           echo "RUNNING TESTS"
           echo "=============================="
 
           if [ -d "tests" ]; then
-
-            echo "Tests directory found."
             pytest tests -v
-
           else
-
             echo "No tests directory found."
             echo "Skipping pytest."
-
           fi
 
 
   # ============================================================
   # DOCKER JOB
   # ============================================================
+
   docker:
     needs: test
     runs-on: ubuntu-latest
 
+    # Only build/push Docker on a push to main.
+    # Do not attempt Docker Hub login during pull requests.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+
     steps:
 
-      # --------------------------------------------------------
       # 11. Checkout repository
-      # --------------------------------------------------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # --------------------------------------------------------
       # 12. Login to Docker Hub
-      # --------------------------------------------------------
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # --------------------------------------------------------
       # 13. Build Docker image
-      # --------------------------------------------------------
       - name: Build Docker image
         run: |
-
           echo "=============================="
           echo "BUILDING DOCKER IMAGE"
           echo "=============================="
@@ -276,12 +232,9 @@ jobs:
             -t ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest \
             .
 
-      # --------------------------------------------------------
       # 14. Push Docker image
-      # --------------------------------------------------------
       - name: Push Docker image
         run: |
-
           echo "=============================="
           echo "PUSHING DOCKER IMAGE"
           echo "=============================="
@@ -289,6 +242,4 @@ jobs:
           docker push \
             ${{ secrets.DOCKERHUB_USERNAME }}/apple-leaf-mlops:latest
 
-          echo "=============================="
-          echo "DOCKER IMAGE PUSHED SUCCESSFULLY"
-          echo "=============================="
+          echo "Docker image pushed successfully."
